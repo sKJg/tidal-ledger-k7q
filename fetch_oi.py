@@ -8,6 +8,7 @@ Exit code 0 when something new was written or nothing to do, 1 on error.
 """
 import csv, datetime as dt, json, os, sys, time, urllib.request, urllib.error
 from collections import defaultdict
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 SYMBOLS = ["NDX", "SOXX", "NBIS", "SKHY", "NVDA", "MSTR"]
@@ -54,7 +55,7 @@ def parse(text):
         if len(f) != len(COLS):
             raise RuntimeError(f"bad line {l!r}")
         prod, y, m, d, whole, dec, _flags, c, p, _lim = f
-        rows.append((prod, dt.date(int(y), int(m), int(d)).isoformat(), float(f"{int(whole)}.{dec}"), int(c), int(p)))
+        rows.append((prod, dt.date(int(y), int(m), int(d)).isoformat(), Decimal(f"{int(whole)}.{dec}"), int(c), int(p)))
     return rows
 
 
@@ -83,7 +84,7 @@ def main():
             w = csv.writer(fh)
             w.writerow(["product", "expiry", "strike", "call_oi", "put_oi"])
             for r in rows:
-                w.writerow([r[0], r[1], f"{r[2]:g}", r[3], r[4]])
+                w.writerow([r[0], r[1], format(r[2], "f"), r[3], r[4]])
         by_exp = defaultdict(lambda: [0, 0])
         by_prod = defaultdict(lambda: [0, 0])
         for prod, e, _k, c, p in rows:
