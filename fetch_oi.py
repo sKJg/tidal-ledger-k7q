@@ -456,10 +456,45 @@ def audit_legacy(root, asof, symbols=SYMBOLS):
     return result
 
 
-def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.timezone.utc), symbols=SYMBOLS):
+def _publish_verified_pointer(root, bundle_root, asof, now_fn, symbols=SYMBOLS):
+    """Publish a pointer only after the target bundle passes full source verification."""
+    root=Path(root); bundle_root=Path(bundle_root)
+    audit=audit_legacy(bundle_root,asof,symbols)
+    if any(audit[s]["status"]!="BUNDLE_VERIFIED" for s in symbols):
+        raise HoldExisting(asof,[bundle_root/"data"/"quality"/f"{asof}.json"])
+    quality=bundle_root/"data"/"quality"/f"{asof}.json"
+    summary=bundle_root/"data"/"summary"/f"{asof}.json"
+    latest=bundle_root/"data"/"latest.json"
+    try:
+        manifest=json.loads(quality.read_text(encoding="utf-8"))
+        summary_obj=json.loads(summary.read_text(encoding="utf-8"))
+        latest_obj=json.loads(latest.read_text(encoding="utf-8"))
+        if manifest.get("asof")!=asof or manifest.get("status")!="complete": raise ValueError("quality manifest is not complete for basis date")
+        if summary_obj.get("asof")!=asof or set(summary_obj.get("symbols",{}))!=set(symbols): raise ValueError("summary does not match bundle date/symbols")
+        if latest_obj.get("asof")!=asof or set(latest_obj.get("symbols",[]))!=set(symbols) or latest_obj.get("errors")!=[]: raise ValueError("bundle latest pointer is inconsistent")
+    except Exception as exc:
+        raise HoldExisting(asof,[quality,summary,latest]) from exc
+    rel=str(bundle_root.relative_to(root)) if bundle_root!=root else "."
+    quality_raw=quality.read_bytes()
+    ready_utc=manifest.get("completed_utc")
+    if not ready_utc: raise HoldExisting(asof,[quality])
+    pointer={"asof":asof,"bundle_root":rel,"completed_utc":ready_utc,"quality_sha256":_sha256(quality_raw),"source":"OCC"}
+    path=root/"data"/"verified-latest.json"
+    if path.is_symlink() or (path.exists() and not path.is_file()): raise HoldExisting(asof,[path])
+    if path.exists():
+        try: current=json.loads(path.read_text(encoding="utf-8"))
+        except Exception: current=None
+        if current==pointer: return current
+    _atomic_replace(path,_json_bytes(pointer))
+    return pointer
+
+
+def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.timezone.utc), symbols=SYMBOLS, allow_recheck=True, _expected_asof=None, _publish_pointer=True):
     """Fetch/validate all missing data first, then publish no-overwrite daily artifacts."""
     root = Path(root)
     before = marker(fetch, now_fn)
+    if _expected_asof and before.asof!=_expected_asof:
+        raise ValueError(f"expected OCC basis {_expected_asof}, got {before.asof}")
     existing = _existing_for_day(root, before.asof, symbols)
     if existing:
         audit=audit_legacy(root,before.asof,symbols)
@@ -469,8 +504,16 @@ def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.t
             if latest.get("asof")==before.asof and set(latest.get("symbols",[]))==set(symbols) and latest.get("errors")==[]:
                 summary=json.loads((root/"data"/"summary"/f"{before.asof}.json").read_text(encoding="utf-8"))
                 manifest=json.loads((root/"data"/"quality"/f"{before.asof}.json").read_text(encoding="utf-8"))
+                if _publish_pointer: _publish_verified_pointer(root,root,before.asof,now_fn,symbols)
                 manifest["run_disposition"]="ALREADY_VERIFIED_SKIP"
                 return summary,manifest
+        if allow_recheck:
+            recheck_root=root/"data"/"rechecks"/before.asof
+            recheck_summary,recheck_manifest=collect_and_publish(recheck_root,fetch=fetch,now_fn=now_fn,symbols=symbols,allow_recheck=False,_expected_asof=before.asof,_publish_pointer=False)
+            _publish_verified_pointer(root,recheck_root,before.asof,now_fn,symbols)
+            recheck_manifest=dict(recheck_manifest)
+            if recheck_manifest.get("run_disposition")!="ALREADY_VERIFIED_SKIP": recheck_manifest["run_disposition"]="LEGACY_RECHECK_ARCHIVED"
+            return recheck_summary,recheck_manifest
         raise HoldExisting(before.asof, existing)
 
     observations = {}
@@ -614,6 +657,7 @@ def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.t
                 f"and same-day output remains held: {rollback_error}"
             ) from original_error
         raise
+    if _publish_pointer: _publish_verified_pointer(root,root,before.asof,now_fn,symbols)
     return summary, manifest
 
 
