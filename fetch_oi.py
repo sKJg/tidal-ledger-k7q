@@ -18,6 +18,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -58,6 +59,10 @@ class HoldExisting(Exception):
     def __init__(self, asof, paths):
         self.asof, self.paths = asof, tuple(map(str, paths))
         super().__init__(f"same-day output exists; re-fetch/write blocked for {asof}: {', '.join(self.paths)}")
+
+
+class RollbackBlocked(RuntimeError):
+    """Ownership or content checks failed; do not remove possibly external files."""
 
 
 def _utc(now_fn):
@@ -198,7 +203,7 @@ def _fsync_dir(path):
     finally: os.close(fd)
 
 
-def _install_new(path, content):
+def _install_new(path, content, *, on_link=None):
     """Atomic exclusive install: link refuses to replace an existing same-day file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -207,13 +212,15 @@ def _install_new(path, content):
         with os.fdopen(fd, "wb") as stream:
             stream.write(content); stream.flush(); os.fsync(stream.fileno())
         os.link(temp_name, path)  # atomic, fails if target already exists
+        if on_link is not None:
+            on_link(path)
         _fsync_dir(path.parent)
     finally:
         try: os.unlink(temp_name)
         except FileNotFoundError: pass
 
 
-def _atomic_replace(path, content):
+def _atomic_replace(path, content, *, on_replace=None):
     """Atomic replace reserved for latest.json and the run manifest's final status."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,10 +229,147 @@ def _atomic_replace(path, content):
         with os.fdopen(fd, "wb") as stream:
             stream.write(content); stream.flush(); os.fsync(stream.fileno())
         os.replace(temp_name, path)
+        if on_replace is not None:
+            on_replace(path)
         _fsync_dir(path.parent)
     finally:
         try: os.unlink(temp_name)
         except FileNotFoundError: pass
+
+
+def _sha256(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _owned_file_state(path, expected_sha256):
+    path = Path(path)
+    if path.is_symlink():
+        return "changed"
+    if not path.exists():
+        return "absent"
+    if not path.is_file():
+        return "changed"
+    return "owned" if _sha256(path.read_bytes()) == expected_sha256 else "changed"
+
+
+def _write_owned_manifest(path, manifest, transaction_id, *, on_replace=None):
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise RollbackBlocked("transaction manifest is not a regular owned file")
+    current = json.loads(path.read_text(encoding="utf-8"))
+    if current.get("transaction_id") != transaction_id:
+        raise RollbackBlocked("transaction manifest ownership changed; recovery is held")
+    content = _json_bytes(manifest)
+    _atomic_replace(path, content, on_replace=on_replace)
+
+
+def _safe_transaction_path(root, relative):
+    root = Path(root).resolve()
+    relative = Path(relative)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise RollbackBlocked(f"unsafe transaction path: {relative}")
+    target = root / relative
+    try:
+        target.resolve(strict=False).relative_to(root)
+    except ValueError as exc:
+        raise RollbackBlocked(f"transaction path escapes data root: {relative}") from exc
+    return target
+
+
+def _rollback_transaction(root, *, manifest_path, transaction_id,
+                          created, claim_hashes, latest_path, latest_new, latest_before, latest_replaced):
+    """Undo only link/replace operations this run recorded and whose bytes still match."""
+    root = Path(root)
+    manifest_path = _safe_transaction_path(root, Path(manifest_path).relative_to(root))
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise RollbackBlocked("transaction claim disappeared or changed; outputs are held")
+    try:
+        disk_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RollbackBlocked(f"transaction claim unreadable; outputs are held: {exc}") from exc
+    if disk_manifest.get("transaction_id") != transaction_id:
+        raise RollbackBlocked("transaction claim ownership changed; outputs are held")
+    if _sha256(manifest_path.read_bytes()) not in claim_hashes:
+        raise RollbackBlocked("transaction claim bytes changed outside this execution; outputs are held")
+
+    claimed = {}
+    try:
+        for entry in disk_manifest["planned_artifacts"]:
+            rel = Path(entry["path"])
+            if rel.is_absolute() or ".." in rel.parts:
+                raise ValueError(f"unsafe claimed path: {rel}")
+            claimed[rel.as_posix()] = entry["sha256"]
+        if disk_manifest.get("latest_after_sha256") != _sha256(latest_new):
+            raise ValueError("latest target hash differs from exclusive claim")
+        if disk_manifest.get("latest_before") != {
+            "exists": latest_before is not None,
+            "sha256": _sha256(latest_before) if latest_before is not None else None,
+        }:
+            raise ValueError("prior latest snapshot differs from exclusive claim")
+        for rel, digest in created.items():
+            if claimed.get(rel) != digest:
+                raise ValueError(f"created artifact is not covered by claim: {rel}")
+    except Exception as exc:
+        raise RollbackBlocked(f"transaction claim does not authorize cleanup: {exc}") from exc
+
+    mismatches = []
+    for rel, digest in created.items():
+        target = _safe_transaction_path(root, rel)
+        if _owned_file_state(target, digest) == "changed":
+            mismatches.append(rel)
+    if latest_replaced:
+        latest_path = _safe_transaction_path(root, Path(latest_path).relative_to(root))
+        state = _owned_file_state(latest_path, _sha256(latest_new))
+        if state != "owned":
+            mismatches.append(str(Path(latest_path).relative_to(root)))
+    if mismatches:
+        raise RollbackBlocked("artifact ownership/hash changed; refusing cleanup: " + ", ".join(mismatches))
+
+    # Restore latest only when this run replaced it and it still contains our exact bytes.
+    if latest_replaced:
+        if latest_before is None:
+            if _owned_file_state(latest_path, _sha256(latest_new)) != "owned":
+                raise RollbackBlocked("latest.json changed before rollback; refusing removal")
+            Path(latest_path).unlink()
+            _fsync_dir(Path(latest_path).parent)
+        else:
+            if _owned_file_state(latest_path, _sha256(latest_new)) != "owned":
+                raise RollbackBlocked("latest.json changed before restoration; refusing overwrite")
+            _atomic_replace(latest_path, latest_before)
+
+    # Remove only paths whose exclusive link succeeded during this process.
+    for rel in reversed(tuple(created)):
+        target = _safe_transaction_path(root, rel)
+        state = _owned_file_state(target, created[rel])
+        if state == "absent":
+            continue
+        if state != "owned":
+            raise RollbackBlocked(f"artifact changed before unlink; refusing cleanup: {rel}")
+        target.unlink()
+        _fsync_dir(target.parent)
+
+    # Remove our claim last so a new same-day run cannot overlap cleanup.
+    current = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if current.get("transaction_id") != transaction_id:
+        raise RollbackBlocked("transaction claim changed before final cleanup")
+    if _sha256(manifest_path.read_bytes()) not in claim_hashes:
+        raise RollbackBlocked("transaction claim changed before final cleanup")
+    manifest_path.unlink()
+    _fsync_dir(manifest_path.parent)
+
+
+def _mark_rollback_blocked(root, manifest_path, transaction_id, reason):
+    try:
+        manifest_path = _safe_transaction_path(root, Path(manifest_path).relative_to(root))
+        current = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        if current.get("transaction_id") != transaction_id:
+            return
+        current["status"] = "rollback_blocked"
+        current["rollback_error"] = str(reason)
+        _atomic_replace(manifest_path, _json_bytes(current))
+    except Exception:
+        # Keep the existing claim if even the explanatory update cannot be persisted.
+        return
 
 
 def audit_legacy(root, asof, symbols=SYMBOLS):
@@ -352,54 +496,123 @@ def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.t
     if existing:
         raise HoldExisting(before.asof, existing)
 
+    transaction_id = uuid.uuid4().hex
+    planned = {}
+    symbol_manifest = {}
+    for symbol, observation in observations.items():
+        gz = _gzip(observation.raw)
+        raw_path = raw_dir / f"{symbol}.tsv.gz"
+        csv_raw = _csv_bytes(observation.rows)
+        csv_path = data_root / symbol / f"{before.asof}.csv"
+        planned[raw_path] = gz
+        planned[csv_path] = csv_raw
+        symbol_manifest[symbol] = {
+            "url": observation.url,
+            "fetched_utc": observation.fetched_utc,
+            "rows": len(observation.rows),
+            "raw_sha256": _sha256(observation.raw),
+            "raw_gzip_sha256": _sha256(gz),
+            "raw_path": str(raw_path.relative_to(root)),
+            "csv_sha256": _sha256(csv_raw),
+            "csv_path": str(csv_path.relative_to(root)),
+        }
+
+    marker_hashes = {}
+    for label, marker_observation in (("marker-before", before), ("marker-after", after)):
+        gz = _gzip(marker_observation.raw)
+        marker_path = raw_dir / f"{label}.json.gz"
+        planned[marker_path] = gz
+        marker_hashes[label.replace("-", "_")] = {
+            "requested_date": marker_observation.requested_date,
+            "requested_utc": marker_observation.requested_utc,
+            "received_utc": marker_observation.received_utc,
+            "asof": marker_observation.asof,
+            "sha256": _sha256(marker_observation.raw),
+            "raw_path": str(marker_path.relative_to(root)),
+            "raw_gzip_sha256": _sha256(gz),
+        }
+
+    summary = _summary(before.asof, observations)
+    summary_raw = _json_bytes(summary)
+    planned[summary_path] = summary_raw
+    latest_raw = _json_bytes({"asof": before.asof, "symbols": sorted(observations), "errors": []})
+    if latest_path.is_symlink() or (latest_path.exists() and not latest_path.is_file()):
+        raise HoldExisting(before.asof, [latest_path])
+    latest_before = latest_path.read_bytes() if latest_path.exists() else None
+    latest_before_sha = _sha256(latest_before) if latest_before is not None else None
+
     manifest = {
         "asof": before.asof,
         "status": "publishing",
+        "transaction_id": transaction_id,
         "started_utc": before.requested_utc,
-        "marker_before": {"requested_date": before.requested_date, "requested_utc": before.requested_utc,
-                          "received_utc": before.received_utc,
-                          "asof": before.asof, "sha256": hashlib.sha256(before.raw).hexdigest()},
-        "marker_after": {"requested_date": after.requested_date, "requested_utc": after.requested_utc,
-                         "received_utc": after.received_utc,
-                         "asof": after.asof, "sha256": hashlib.sha256(after.raw).hexdigest()},
-        "symbols": {},
+        **marker_hashes,
+        "symbols": symbol_manifest,
+        "planned_artifacts": [
+            {"path": str(path.relative_to(root)), "sha256": _sha256(content)}
+            for path, content in planned.items()
+        ],
+        "latest_before": {"exists": latest_before is not None, "sha256": latest_before_sha},
+        "latest_after_sha256": _sha256(latest_raw),
     }
-    _install_new(manifest_path, _json_bytes(manifest))
-    try:
-        for symbol, observation in observations.items():
-            gz = _gzip(observation.raw)
-            raw_path = raw_dir / f"{symbol}.tsv.gz"
-            _install_new(raw_path, gz)
-            csv_raw = _csv_bytes(observation.rows)
-            csv_path = data_root / symbol / f"{before.asof}.csv"
-            _install_new(csv_path, csv_raw)
-            manifest["symbols"][symbol] = {
-                "url": observation.url,
-                "fetched_utc": observation.fetched_utc,
-                "rows": len(observation.rows),
-                "raw_sha256": hashlib.sha256(observation.raw).hexdigest(),
-                "raw_gzip_sha256": hashlib.sha256(gz).hexdigest(),
-                "raw_path": str(raw_path.relative_to(root)),
-                "csv_sha256": hashlib.sha256(csv_raw).hexdigest(),
-                "csv_path": str(csv_path.relative_to(root)),
-            }
-            _atomic_replace(manifest_path, _json_bytes(manifest))
-        # Marker bodies are retained too, not only their parsed date/hash.
-        for label, raw in (("marker-before", before.raw), ("marker-after", after.raw)):
-            gz = _gzip(raw)
-            p = raw_dir / f"{label}.json.gz"
-            _install_new(p, gz)
-            manifest[label.replace("-", "_")]["raw_path"] = str(p.relative_to(root))
-            manifest[label.replace("-", "_")]["raw_gzip_sha256"] = hashlib.sha256(gz).hexdigest()
+    claim_installed = False
+    claim_hashes = set()
+    created = {}
+    latest_replaced = False
 
-        summary = _summary(before.asof, observations)
-        _install_new(summary_path, _json_bytes(summary))
-        _atomic_replace(latest_path, _json_bytes({"asof": before.asof, "symbols": sorted(observations), "errors": []}))
+    def record_created(path, content):
+        rel = str(Path(path).relative_to(root))
+        created[rel] = _sha256(content)
+
+    claim_raw = _json_bytes(manifest)
+
+    def claim_linked(_path):
+        nonlocal claim_installed
+        claim_installed = True
+        claim_hashes.add(_sha256(claim_raw))
+
+    try:
+        _install_new(manifest_path, claim_raw, on_link=claim_linked)
+        for path, content in planned.items():
+            _install_new(path, content, on_link=lambda installed, payload=content: record_created(installed, payload))
+
+        # Do not replace latest if another actor changed it since the claim snapshot.
+        current_latest = latest_path.read_bytes() if latest_path.exists() and latest_path.is_file() else None
+        if current_latest != latest_before:
+            raise RollbackBlocked("latest.json changed after transaction claim; publication held")
+        def latest_linked(_path):
+            nonlocal latest_replaced
+            latest_replaced = True
+        _atomic_replace(latest_path, latest_raw, on_replace=latest_linked)
+
         manifest["status"] = "complete"
         manifest["completed_utc"] = _utc(now_fn)
-        _atomic_replace(manifest_path, _json_bytes(manifest))
-    except Exception:
-        # Leave the durable status at "publishing". Same-day reruns are blocked for audit.
+        completed_raw = _json_bytes(manifest)
+        _write_owned_manifest(
+            manifest_path, manifest, transaction_id,
+            on_replace=lambda _path: claim_hashes.add(_sha256(completed_raw)),
+        )
+    except Exception as original_error:
+        if not claim_installed:
+            raise
+        try:
+            _rollback_transaction(
+                root,
+                manifest_path=manifest_path,
+                transaction_id=transaction_id,
+                created=created,
+                claim_hashes=claim_hashes,
+                latest_path=latest_path,
+                latest_new=latest_raw,
+                latest_before=latest_before,
+                latest_replaced=latest_replaced,
+            )
+        except Exception as rollback_error:
+            _mark_rollback_blocked(root, manifest_path, transaction_id, rollback_error)
+            raise RollbackBlocked(
+                f"publication failed ({original_error}); rollback could not prove ownership "
+                f"and same-day output remains held: {rollback_error}"
+            ) from original_error
         raise
     return summary, manifest
 
