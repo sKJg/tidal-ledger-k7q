@@ -1,5 +1,11 @@
 {
- "asof": "2026-11-24",
+ "analysis_eligible": false,
+ "asof": "2026-11-25",
+ "contract_asof": null,
+ "contract_date_status": "UNPROVEN_GLOBAL_MARKER",
+ "errors": [],
+ "marker_asof": "2026-11-25",
+ "quality_scope": "BUNDLE_INTEGRITY_ONLY",
  "symbols": [
   "MSTR",
   "NBIS",
@@ -7,6 +13,5 @@
   "NVDA",
   "SKHY",
   "SOXX"
- ],
- "errors": []
+ ]
 }
