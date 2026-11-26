@@ -96,6 +96,22 @@ def _asof_from_marker(raw):
     return dt.datetime.fromtimestamp(ms / 1000, CT).date().isoformat()
 
 
+def _contract_date_fields(marker_asof):
+    """Mark global-marker date separately from unproven contract-row dates."""
+    return {
+        "marker_asof": marker_asof,
+        "contract_date_status": "UNPROVEN_GLOBAL_MARKER",
+        "contract_asof": None,
+        "analysis_eligible": False,
+        "quality_scope": "BUNDLE_INTEGRITY_ONLY",
+    }
+
+
+def _scope_audit_results(asof, results):
+    fields = _contract_date_fields(asof)
+    return {symbol: {**result, **fields} for symbol, result in results.items()}
+
+
 def marker(fetch, now_fn):
     instant = now_fn()
     if instant.tzinfo is None or instant.utcoffset() is None:
@@ -164,7 +180,7 @@ def _existing_for_day(root, asof, symbols=SYMBOLS):
 
 
 def _summary(asof, observations):
-    result = {"asof": asof, "source": "OCC series-search", "symbols": {}}
+    result = {"asof": asof, "source": "OCC series-search", **_contract_date_fields(asof), "symbols": {}}
     for symbol, observation in observations.items():
         by_exp, by_prod = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
         for product, expiry, _strike, calls, puts in observation.rows:
@@ -373,26 +389,26 @@ def _mark_rollback_blocked(root, manifest_path, transaction_id, reason):
 
 
 def audit_legacy(root, asof, symbols=SYMBOLS):
-    """Check legacy CSV/summary arithmetic without claiming source authenticity."""
+    """Check bundle integrity; BUNDLE_VERIFIED is never a dated-numeric verdict."""
     root = Path(root)
     summary_path = root / "data" / "summary" / f"{asof}.json"
     if not summary_path.exists():
-        return {s: {"status": "INCOMPLETE", "reason": "same-day summary missing"} for s in symbols}
+        return _scope_audit_results(asof, {s: {"status": "INCOMPLETE", "reason": "same-day summary missing"} for s in symbols})
     try:
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         if summary.get("asof") != asof:
             raise ValueError("summary asof mismatch")
     except Exception as exc:
-        return {s: {"status": "INVALID", "reason": f"summary unreadable: {exc}"} for s in symbols}
+        return _scope_audit_results(asof, {s: {"status": "INVALID", "reason": f"summary unreadable: {exc}"} for s in symbols})
     manifest_path = root / "data" / "quality" / f"{asof}.json"
     manifest = None
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
-            return {s: {"status": "INVALID", "reason": "quality manifest unreadable"} for s in symbols}
+            return _scope_audit_results(asof, {s: {"status": "INVALID", "reason": "quality manifest unreadable"} for s in symbols})
     if manifest and manifest.get("status") != "complete":
-        return {s: {"status": "INCOMPLETE_PUBLISH", "reason": "same-day quality manifest is not complete"} for s in symbols}
+        return _scope_audit_results(asof, {s: {"status": "INCOMPLETE_PUBLISH", "reason": "same-day quality manifest is not complete"} for s in symbols})
     if manifest:
         try:
             for key in ("marker_before", "marker_after"):
@@ -406,7 +422,7 @@ def audit_legacy(root, asof, symbols=SYMBOLS):
                 if hashlib.sha256(raw).hexdigest()!=marker_info["sha256"] or _asof_from_marker(raw)!=asof:
                     raise ValueError(f"{key} marker content/hash mismatch")
         except Exception as exc:
-            return {s: {"status": "INVALID", "reason": str(exc)} for s in symbols}
+            return _scope_audit_results(asof, {s: {"status": "INVALID", "reason": str(exc)} for s in symbols})
     result = {}
     for symbol in symbols:
         path = root / "data" / symbol / f"{asof}.csv"
@@ -448,12 +464,12 @@ def audit_legacy(root, asof, symbols=SYMBOLS):
                 if source_rows!=csv_rows: raise ValueError("raw source rows differ from published CSV")
                 csv_raw=path.read_bytes()
                 if hashlib.sha256(csv_raw).hexdigest()!=entry["csv_sha256"]: raise ValueError("CSV hash mismatch")
-                result[symbol]={"status":"BUNDLE_VERIFIED","reason":"raw hash, parsed rows, CSV, and summary agree"}
+                result[symbol]={"status":"BUNDLE_VERIFIED","reason":"bundle integrity only: raw hash, parsed rows, CSV, and summary agree; contract OI date remains unproven"}
             else:
                 result[symbol]={"status":"LEGACY_STRUCTURALLY_CONSISTENT_UNVERIFIED","reason":"CSV and summary arithmetic agree; raw response/receipt/marker unavailable"}
         except Exception as exc:
             result[symbol]={"status":"INVALID","reason":str(exc)}
-    return result
+    return _scope_audit_results(asof, result)
 
 
 def _publish_verified_pointer(root, bundle_root, asof, now_fn, symbols=SYMBOLS):
@@ -478,7 +494,7 @@ def _publish_verified_pointer(root, bundle_root, asof, now_fn, symbols=SYMBOLS):
     quality_raw=quality.read_bytes()
     ready_utc=manifest.get("completed_utc")
     if not ready_utc: raise HoldExisting(asof,[quality])
-    pointer={"asof":asof,"bundle_root":rel,"completed_utc":ready_utc,"quality_sha256":_sha256(quality_raw),"source":"OCC"}
+    pointer={"asof":asof,"bundle_root":rel,"completed_utc":ready_utc,"quality_sha256":_sha256(quality_raw),"source":"OCC", **_contract_date_fields(asof)}
     path=root/"data"/"verified-latest.json"
     if path.is_symlink() or (path.exists() and not path.is_file()): raise HoldExisting(asof,[path])
     if path.exists():
@@ -505,6 +521,8 @@ def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.t
                 summary=json.loads((root/"data"/"summary"/f"{before.asof}.json").read_text(encoding="utf-8"))
                 manifest=json.loads((root/"data"/"quality"/f"{before.asof}.json").read_text(encoding="utf-8"))
                 if _publish_pointer: _publish_verified_pointer(root,root,before.asof,now_fn,symbols)
+                summary.update(_contract_date_fields(before.asof))
+                manifest.update(_contract_date_fields(before.asof))
                 manifest["run_disposition"]="ALREADY_VERIFIED_SKIP"
                 return summary,manifest
         if allow_recheck:
@@ -578,7 +596,7 @@ def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.t
     summary = _summary(before.asof, observations)
     summary_raw = _json_bytes(summary)
     planned[summary_path] = summary_raw
-    latest_raw = _json_bytes({"asof": before.asof, "symbols": sorted(observations), "errors": []})
+    latest_raw = _json_bytes({"asof": before.asof, "symbols": sorted(observations), "errors": [], **_contract_date_fields(before.asof)})
     if latest_path.is_symlink() or (latest_path.exists() and not latest_path.is_file()):
         raise HoldExisting(before.asof, [latest_path])
     latest_before = latest_path.read_bytes() if latest_path.exists() else None
@@ -587,6 +605,7 @@ def collect_and_publish(root, *, fetch=_get, now_fn=lambda: dt.datetime.now(dt.t
     manifest = {
         "asof": before.asof,
         "status": "publishing",
+        **_contract_date_fields(before.asof),
         "transaction_id": transaction_id,
         "started_utc": before.requested_utc,
         **marker_hashes,
@@ -667,7 +686,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     summary, manifest = collect_and_publish(args.root)
     print(json.dumps({"asof": summary["asof"], "status": manifest["status"],
-                      "disposition": manifest.get("run_disposition", "PUBLISHED")}, sort_keys=True))
+                      "disposition": manifest.get("run_disposition", "PUBLISHED"),
+                      **_contract_date_fields(summary["asof"])}, sort_keys=True))
 
 
 if __name__ == "__main__":
