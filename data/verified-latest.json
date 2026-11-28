@@ -1,12 +1,12 @@
 {
  "analysis_eligible": false,
- "asof": "2026-11-25",
+ "asof": "2026-11-27",
  "bundle_root": ".",
- "completed_utc": "2026-11-26T06:20:45.243208Z",
+ "completed_utc": "2026-11-28T07:59:47.846665Z",
  "contract_asof": null,
  "contract_date_status": "UNPROVEN_GLOBAL_MARKER",
- "marker_asof": "2026-11-25",
+ "marker_asof": "2026-11-27",
  "quality_scope": "BUNDLE_INTEGRITY_ONLY",
- "quality_sha256": "ef78e86b018e9ae37c0e5dcdd2b6dfa7f9b41de2e88c6aa0ab7b7aefd2734524",
+ "quality_sha256": "f838036062366e3e67fffb430dcc45d7b1dddcdea94d5f18e98d50dde10f9873",
  "source": "OCC"
 }

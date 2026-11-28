@@ -1,10 +1,10 @@
 {
  "analysis_eligible": false,
- "asof": "2026-11-25",
+ "asof": "2026-11-27",
  "contract_asof": null,
  "contract_date_status": "UNPROVEN_GLOBAL_MARKER",
  "errors": [],
- "marker_asof": "2026-11-25",
+ "marker_asof": "2026-11-27",
  "quality_scope": "BUNDLE_INTEGRITY_ONLY",
  "symbols": [
   "MSTR",

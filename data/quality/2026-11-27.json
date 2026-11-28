@@ -1,0 +1,159 @@
+{
+ "analysis_eligible": false,
+ "asof": "2026-11-27",
+ "completed_utc": "2026-11-28T07:59:47.846665Z",
+ "contract_asof": null,
+ "contract_date_status": "UNPROVEN_GLOBAL_MARKER",
+ "latest_after_sha256": "95605cdc1e6c88a9fa8b89426c1a17ce26e1e177f5a60d1abd67cda831988bf1",
+ "latest_before": {
+  "exists": true,
+  "sha256": "12a23fc8df7806c72b31664241b1068d703c017347909e1f9a18cd5451bb375e"
+ },
+ "marker_after": {
+  "asof": "2026-11-27",
+  "raw_gzip_sha256": "8e9a4ab0ee9917650c28ee38d54b1120dbd9eb5770f9658f6965dfef8fd84f91",
+  "raw_path": "data/raw/2026-11-27/marker-after.json.gz",
+  "received_utc": "2026-11-28T07:59:47.681665Z",
+  "requested_date": "11/28/2026",
+  "requested_utc": "2026-11-28T07:59:47.520235Z",
+  "sha256": "21f02abda1b3c5810eaed982ec0cb4313ef89f43381cc99c09b8c7f3c3326673"
+ },
+ "marker_asof": "2026-11-27",
+ "marker_before": {
+  "asof": "2026-11-27",
+  "raw_gzip_sha256": "8e9a4ab0ee9917650c28ee38d54b1120dbd9eb5770f9658f6965dfef8fd84f91",
+  "raw_path": "data/raw/2026-11-27/marker-before.json.gz",
+  "received_utc": "2026-11-28T07:59:45.290451Z",
+  "requested_date": "11/28/2026",
+  "requested_utc": "2026-11-28T07:59:44.994225Z",
+  "sha256": "21f02abda1b3c5810eaed982ec0cb4313ef89f43381cc99c09b8c7f3c3326673"
+ },
+ "planned_artifacts": [
+  {
+   "path": "data/raw/2026-11-27/NDX.tsv.gz",
+   "sha256": "da7f7535c42bbfdb13cb7897a845f9e62227c634db003c9ae83005aea04cbb58"
+  },
+  {
+   "path": "data/NDX/2026-11-27.csv",
+   "sha256": "1da866add63f1e792a88a38b2c756539fb5a6b9a2edad87d43f60d43719c84f3"
+  },
+  {
+   "path": "data/raw/2026-11-27/SOXX.tsv.gz",
+   "sha256": "2df18c76c444719f200e1174df029bffc50b67a432baf800a17f9029cc32be52"
+  },
+  {
+   "path": "data/SOXX/2026-11-27.csv",
+   "sha256": "c0f08aeb404dc3a76ff5437ae118e874802e47e80096c91c187fca36142e8842"
+  },
+  {
+   "path": "data/raw/2026-11-27/NBIS.tsv.gz",
+   "sha256": "3299c000b41fbf2bbb537fe6e0bc178d277de3db993c161ba4f9861997e50230"
+  },
+  {
+   "path": "data/NBIS/2026-11-27.csv",
+   "sha256": "0239a40974595405cd2a6f5ea31c6a31ed1c71288b64c75b9d773dd5d25dd7c1"
+  },
+  {
+   "path": "data/raw/2026-11-27/SKHY.tsv.gz",
+   "sha256": "240dd85143a2ea524e0aed2d68e560cc7b7de8c53fff2df665291817605f91c8"
+  },
+  {
+   "path": "data/SKHY/2026-11-27.csv",
+   "sha256": "82e0ab503a2e68349360a16532ce9ad55c140cd9501369b23928565680c8f18b"
+  },
+  {
+   "path": "data/raw/2026-11-27/NVDA.tsv.gz",
+   "sha256": "60ed84b299bfdb81b136873d8786d0e61100c1b2d7d30150ab010164fd609597"
+  },
+  {
+   "path": "data/NVDA/2026-11-27.csv",
+   "sha256": "cfad80ed9627cab0f163f07fff6a00e6bd59f0a4af2d67d05588257c2bcd60cc"
+  },
+  {
+   "path": "data/raw/2026-11-27/MSTR.tsv.gz",
+   "sha256": "8e6a5cff3d4be9183570c98f812f842fb63233301c22fa1690d2aeed3a044344"
+  },
+  {
+   "path": "data/MSTR/2026-11-27.csv",
+   "sha256": "f1aa287b28d78f3287cc94c7a1f8157eba4f6ca6b84aee00a36ce44ab9dd5810"
+  },
+  {
+   "path": "data/raw/2026-11-27/marker-before.json.gz",
+   "sha256": "8e9a4ab0ee9917650c28ee38d54b1120dbd9eb5770f9658f6965dfef8fd84f91"
+  },
+  {
+   "path": "data/raw/2026-11-27/marker-after.json.gz",
+   "sha256": "8e9a4ab0ee9917650c28ee38d54b1120dbd9eb5770f9658f6965dfef8fd84f91"
+  },
+  {
+   "path": "data/summary/2026-11-27.json",
+   "sha256": "d977d023259af20623d537a9115517fa224e10cbaad042b1380826d26b2ed4c0"
+  }
+ ],
+ "quality_scope": "BUNDLE_INTEGRITY_ONLY",
+ "started_utc": "2026-11-28T07:59:44.994225Z",
+ "status": "complete",
+ "symbols": {
+  "MSTR": {
+   "csv_path": "data/MSTR/2026-11-27.csv",
+   "csv_sha256": "f1aa287b28d78f3287cc94c7a1f8157eba4f6ca6b84aee00a36ce44ab9dd5810",
+   "fetched_utc": "2026-11-28T07:59:47.512814Z",
+   "raw_gzip_sha256": "8e6a5cff3d4be9183570c98f812f842fb63233301c22fa1690d2aeed3a044344",
+   "raw_path": "data/raw/2026-11-27/MSTR.tsv.gz",
+   "raw_sha256": "57e4132e8e1b2910cfe1778caf5f796a7743a815f3ab38549ddfd4cc982d1bf6",
+   "rows": 1487,
+   "url": "https://marketdata.theocc.com/series-search?symbolType=U&symbol=MSTR"
+  },
+  "NBIS": {
+   "csv_path": "data/NBIS/2026-11-27.csv",
+   "csv_sha256": "0239a40974595405cd2a6f5ea31c6a31ed1c71288b64c75b9d773dd5d25dd7c1",
+   "fetched_utc": "2026-11-28T07:59:46.660242Z",
+   "raw_gzip_sha256": "3299c000b41fbf2bbb537fe6e0bc178d277de3db993c161ba4f9861997e50230",
+   "raw_path": "data/raw/2026-11-27/NBIS.tsv.gz",
+   "raw_sha256": "7785893f6fb78836cf261f7d712433a18f3e14740924d74f7fbcf6eae211de46",
+   "rows": 1426,
+   "url": "https://marketdata.theocc.com/series-search?symbolType=U&symbol=NBIS"
+  },
+  "NDX": {
+   "csv_path": "data/NDX/2026-11-27.csv",
+   "csv_sha256": "1da866add63f1e792a88a38b2c756539fb5a6b9a2edad87d43f60d43719c84f3",
+   "fetched_utc": "2026-11-28T07:59:45.919040Z",
+   "raw_gzip_sha256": "da7f7535c42bbfdb13cb7897a845f9e62227c634db003c9ae83005aea04cbb58",
+   "raw_path": "data/raw/2026-11-27/NDX.tsv.gz",
+   "raw_sha256": "1121b8933e8b8c4a5d0cbbc2c83fc8e3db967237b936d953ad498cdd0838f4bb",
+   "rows": 9537,
+   "url": "https://marketdata.theocc.com/series-search?symbolType=U&symbol=NDX"
+  },
+  "NVDA": {
+   "csv_path": "data/NVDA/2026-11-27.csv",
+   "csv_sha256": "cfad80ed9627cab0f163f07fff6a00e6bd59f0a4af2d67d05588257c2bcd60cc",
+   "fetched_utc": "2026-11-28T07:59:47.283890Z",
+   "raw_gzip_sha256": "60ed84b299bfdb81b136873d8786d0e61100c1b2d7d30150ab010164fd609597",
+   "raw_path": "data/raw/2026-11-27/NVDA.tsv.gz",
+   "raw_sha256": "8938d040f86150f2449d214deeb376ff444fd89d42549bfc1b9408f6de871077",
+   "rows": 2884,
+   "url": "https://marketdata.theocc.com/series-search?symbolType=U&symbol=NVDA"
+  },
+  "SKHY": {
+   "csv_path": "data/SKHY/2026-11-27.csv",
+   "csv_sha256": "82e0ab503a2e68349360a16532ce9ad55c140cd9501369b23928565680c8f18b",
+   "fetched_utc": "2026-11-28T07:59:46.985667Z",
+   "raw_gzip_sha256": "240dd85143a2ea524e0aed2d68e560cc7b7de8c53fff2df665291817605f91c8",
+   "raw_path": "data/raw/2026-11-27/SKHY.tsv.gz",
+   "raw_sha256": "bad675d814ac8f5ae34224d9f6bde3d2d6791c30ead2c63c24a4b065f7acd745",
+   "rows": 1540,
+   "url": "https://marketdata.theocc.com/series-search?symbolType=U&symbol=SKHY"
+  },
+  "SOXX": {
+   "csv_path": "data/SOXX/2026-11-27.csv",
+   "csv_sha256": "c0f08aeb404dc3a76ff5437ae118e874802e47e80096c91c187fca36142e8842",
+   "fetched_utc": "2026-11-28T07:59:46.332882Z",
+   "raw_gzip_sha256": "2df18c76c444719f200e1174df029bffc50b67a432baf800a17f9029cc32be52",
+   "raw_path": "data/raw/2026-11-27/SOXX.tsv.gz",
+   "raw_sha256": "3c41b305234f9aa0d720c2d7ac12b88b615cca605606ee6d2ec0e0f656c55d2e",
+   "rows": 2576,
+   "url": "https://marketdata.theocc.com/series-search?symbolType=U&symbol=SOXX"
+  }
+ },
+ "transaction_id": "42c8b770d136448e8ae290d17d3de311"
+}
